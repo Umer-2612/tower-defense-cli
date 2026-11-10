@@ -3,14 +3,13 @@
 #ifndef LOGGER_H
 #define LOGGER_H
 
+#include <condition_variable>
 #include <fstream>
-#include <vector>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
-// Implement the following methods:
-// Log
-// Flush
 // Message format is "2024-08-30 14:48:16 Starting game..."
 
 class Logger {
@@ -19,15 +18,21 @@ class Logger {
 
     ~Logger();
 
+    void Log(const std::string& message);
+    void Flush();
+
    private:
     Logger();
 
     std::ofstream logFile;
     std::thread logThread;
     std::vector<std::string> logQueue;
+    std::mutex queueMutex;
+    std::condition_variable queueCondition;
     bool exitFlag = false;
 
     void ProcessLogs();
+    void DrainQueue();
     std::string GetCurrentTimestamp();
 };
 

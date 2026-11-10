@@ -2,9 +2,9 @@
 
 #include "logger.h"
 
+#include <chrono>
 #include <iomanip>
-#include <iostream>
-#include <thread>
+#include <sstream>
 
 Logger& Logger::GetInstance() {
     static Logger instance;
@@ -17,27 +17,49 @@ Logger::Logger() : logFile("log.txt", std::ios_base::trunc) {
 
 Logger::~Logger() {
     {
+        std::lock_guard<std::mutex> lock(queueMutex);
         exitFlag = true;
     }
+    queueCondition.notify_all();
+
     if (logThread.joinable()) {
         logThread.join();
     }
+}
 
+void Logger::Log(const std::string& message) {
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        logQueue.push_back(GetCurrentTimestamp() + " " + message);
+    }
+    queueCondition.notify_one();
+}
+
+void Logger::Flush() {
+    std::unique_lock<std::mutex> lock(queueMutex);
+    DrainQueue();
 }
 
 void Logger::ProcessLogs() {
+    std::unique_lock<std::mutex> lock(queueMutex);
+
     while (true) {
-        while (!logQueue.empty()) {
-            logFile << logQueue.back() << std::endl;
-            logQueue.pop_back();
-        }
+        queueCondition.wait(lock, [this] { return !logQueue.empty() || exitFlag; });
+
+        DrainQueue();
 
         if (exitFlag) {
             break;
         }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
+}
+
+void Logger::DrainQueue() {
+    for (const std::string& entry : logQueue) {
+        logFile << entry << std::endl;
+    }
+    logQueue.clear();
+    logFile.flush();
 }
 
 std::string Logger::GetCurrentTimestamp() {
