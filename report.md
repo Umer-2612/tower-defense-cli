@@ -1,6 +1,6 @@
 # Tower Defense: Pooler, Tower, Logger
 
-Scope: `Pooler`, `Tower`, and `Logger` only. Everything below that touches other files (`Game`, `Enemy`, `main`) is observation, not a change I made — those files were out of scope for this task.
+Scope: `Pooler`, `Tower`, and `Logger` only. Everything below that touches other files (`Game`, `Enemy`, `main`) is observation, not a change I made, since those files were out of scope for this task.
 
 ## What I found
 
@@ -12,11 +12,11 @@ Before writing anything, I compiled the project as given. It failed in exactly t
 
 So the headers describe an interface, but the interface itself (declarations, not just definitions) had to be designed from how the call sites use it. Once I filled that in and could compile each file in isolation, more specific problems showed up:
 
-- **`Pooler` had no destructor.** `CreateEnemy()` returns `new Enemy()`, and the pool holds raw pointers in a `std::list<Enemy*>`. Nothing ever freed them.
-- **`Tower::FindClosestEnemy` can return `nullptr`** when the enemy list is empty, which happens for a moment at the start of every wave before the first batch spawns. The call site dereferenced the result without checking, which is a crash waiting to happen on the first frame of each wave.
-- **`Logger`'s queue and exit flag had no synchronization** between the logging thread and the background writer thread, despite the task explicitly asking for concurrency to be handled.
-- **`Logger` drained in reverse order.** `ProcessLogs` read with `logQueue.back()` and `pop_back()`, which writes the most recently queued message first. The task asks for messages "in order."
-- **`Logger` polled on a fixed one-second sleep** instead of waking up when a message actually arrived, so a log line could sit unwritten for up to a second.
+- `Pooler` had no destructor. `CreateEnemy()` returns `new Enemy()`, and the pool holds raw pointers in a `std::list<Enemy*>`. Nothing ever freed them.
+- `Tower::FindClosestEnemy` can return `nullptr` when the enemy list is empty, which happens for a moment at the start of every wave before the first batch spawns. The call site dereferenced the result without checking, which is a crash waiting to happen on the first frame of each wave.
+- `Logger`'s queue and exit flag had no synchronization between the logging thread and the background writer thread, despite the task explicitly asking for concurrency to be handled.
+- `Logger` drained in reverse order. `ProcessLogs` read with `logQueue.back()` and `pop_back()`, which writes the most recently queued message first. The task asks for messages "in order."
+- `Logger` polled on a fixed one-second sleep instead of waking up when a message actually arrived, so a log line could sit unwritten for up to a second.
 
 One more thing worth flagging even though it's outside the three classes: `Game::SetGameOver(bool isGameOver) { isGameOver = isGameOver; }` assigns the parameter to itself because the parameter shadows the member of the same name. The member is never actually written, which means neither pressing Escape nor an enemy reaching the tower ever actually sets the game-over state through this path. I didn't fix this since `Game` is out of scope, but it's a real bug and I've called it out in Recommendations below.
 
@@ -49,6 +49,6 @@ The only tool involved was the compiler's own warning flags; I didn't profile th
 
 ## Recommendations (outside the three classes)
 
-- **`Game::SetGameOver` (`game.cpp`)**: fix the parameter shadowing, e.g. `this->isGameOver = isGameOver;` or rename the parameter. As written, the game-over flag this function is supposed to set never actually gets set, so Escape and the "enemy reached tower" condition don't do what the rest of the code assumes they do.
-- **`Enemy::Activate` (`enemy.h` / `enemy.cpp`)**: when `Pooler` reuses a deactivated `Enemy`, `frameCounter` isn't reset, since `Activate` only touches `position` and `active`. A reused enemy can carry over a `frameCounter` close to its movement threshold from its previous life, so it may take its first step sooner than its velocity implies. `Pooler` can't fix this itself, since `frameCounter` is private with no setter. A small `Reset()` on `Enemy` that `Activate` calls internally would close this.
+- `Game::SetGameOver` (`game.cpp`): fix the parameter shadowing, for example `this->isGameOver = isGameOver;`, or rename the parameter. As written, the game-over flag this function is supposed to set never actually gets set, so Escape and the "enemy reached tower" condition don't do what the rest of the code assumes they do.
+- `Enemy::Activate` (`enemy.h` / `enemy.cpp`): when `Pooler` reuses a deactivated `Enemy`, `frameCounter` isn't reset, since `Activate` only touches `position` and `active`. A reused enemy can carry over a `frameCounter` close to its movement threshold from its previous life, so it may take its first step sooner than its velocity implies. `Pooler` can't fix this itself, since `frameCounter` is private with no setter. A small `Reset()` on `Enemy` that `Activate` calls internally would close this.
 - A few other files (`enemy.cpp`, `game.cpp`, `grid_cell.cpp`) have pre-existing `-Wreorder-ctor` warnings from constructor initializer lists that don't match declaration order. Harmless on their own, but worth a cleanup pass now that `pooler.cpp` and `tower.cpp` build warning-free.
