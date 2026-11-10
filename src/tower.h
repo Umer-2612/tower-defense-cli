@@ -12,10 +12,6 @@
 #include "texture.h"
 #include "vector2d.h"
 
-// Implement the following methods:
-// CalculateDistance
-// FindClosestEnemy
-
 class Tower {
    public:
     Vector2D position;
@@ -38,6 +34,9 @@ class Tower {
     void FireAtEnemy(const std::vector<Enemy*>& enemies,
                      std::vector<Bullet>& bullets);
     void FireBulletAtEnemy(Enemy& enemy, std::vector<Bullet>& bullets);
+
+    int CalculateDistance(const Vector2D& from, const Vector2D& to) const;
+    Enemy* FindClosestEnemy(const std::vector<Enemy*>& enemies) const;
 };
 
 #endif  // TOWER_H

@@ -3,12 +3,14 @@
 #include "tower.h"
 #include "logger.h"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 
 Tower::Tower(int x, int y, int rateOfFire)
     : position({x, y}),
-      rateOfFire(rateOfFire),
       lastFireTime(std::chrono::steady_clock::now()),
+      rateOfFire(rateOfFire),
       bAutoFire(true)
     {}
 
@@ -25,21 +27,47 @@ void Tower::FireAtEnemy(const std::vector<Enemy*>& enemies,
     auto timeElapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastFireTime);
 
-    if (timeElapsed >= std::chrono::milliseconds(rateOfFire)) {
-        Enemy* closestEnemy = FindClosestEnemy(enemies);
+    if (timeElapsed < std::chrono::milliseconds(rateOfFire)) {
+        return;
+    }
 
-        if (bAutoFire) {
-            int distance = CalculateDistance(closestEnemy->GetPosition(), position);
+    Enemy* closestEnemy = FindClosestEnemy(enemies);
+    if (closestEnemy == nullptr) {
+        return;
+    }
 
-            if (distance <= ENEMYRANGE) {
-                FireBulletAtEnemy(*closestEnemy, bullets);
-                lastFireTime = currentTime;
-            }
-        } else {
-            FireBulletAtEnemy(*closestEnemy, bullets);
-            lastFireTime = currentTime;
+    // Auto-fire respects ENEMYRANGE; manual fire always targets the closest
+    // enemy regardless of distance, matching the original control scheme.
+    if (bAutoFire && CalculateDistance(closestEnemy->GetPosition(), position) >
+                         static_cast<int>(ENEMYRANGE)) {
+        return;
+    }
+
+    FireBulletAtEnemy(*closestEnemy, bullets);
+    lastFireTime = currentTime;
+}
+
+int Tower::CalculateDistance(const Vector2D& from, const Vector2D& to) const {
+    int deltaX = std::abs(from.x - to.x);
+    int deltaY = std::abs(from.y - to.y);
+
+    return std::max(deltaX, deltaY);
+}
+
+Enemy* Tower::FindClosestEnemy(const std::vector<Enemy*>& enemies) const {
+    Enemy* closestEnemy = nullptr;
+    int closestDistance = std::numeric_limits<int>::max();
+
+    for (Enemy* enemy : enemies) {
+        int distance = CalculateDistance(enemy->GetPosition(), position);
+
+        if (distance < closestDistance) {
+            closestDistance = distance;
+            closestEnemy = enemy;
         }
     }
+
+    return closestEnemy;
 }
 
 bool Tower::GetAutoFire() const { return bAutoFire; }
