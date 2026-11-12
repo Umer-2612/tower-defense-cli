@@ -2,11 +2,11 @@
 
 #include "pooler.h"
 
-#include <algorithm>
-
 Pooler::Pooler(size_t minimumPoolSize) : minimumPoolSize(minimumPoolSize) {
     for (size_t i = 0; i < minimumPoolSize; ++i) {
-        enemies.push_back(CreateEnemy());
+        Enemy* enemy = CreateEnemy();
+        enemies.push_back(enemy);
+        freeList.push_back(enemy);
     }
 }
 
@@ -22,48 +22,64 @@ size_t Pooler::PoolSize()
 }
 
 Enemy* Pooler::SpawnEnemy(const Vector2D& spawnPosition) {
-    auto inactiveEnemy = std::find_if(enemies.begin(), enemies.end(), [](Enemy* enemy) {
-        return !enemy->IsActive();
-    });
-
     Enemy* enemy;
-    if (inactiveEnemy != enemies.end()) {
-        enemy = *inactiveEnemy;
+
+    if (!freeList.empty()) {
+        enemy = freeList.back();
+        freeList.pop_back();
     } else {
         enemy = CreateEnemy();
         enemies.push_back(enemy);
     }
 
     enemy->Activate(spawnPosition);
+    activeEnemiesCacheDirty = true;
+
     return enemy;
 }
 
 void Pooler::DespawnEnemy(Enemy* enemy) {
     enemy->Deactivate();
+    freeList.push_back(enemy);
+    activeEnemiesCacheDirty = true;
 }
 
-std::vector<Enemy*> Pooler::GetActiveEnemies() const {
-    std::vector<Enemy*> activeEnemies;
-    activeEnemies.reserve(enemies.size());
+const std::vector<Enemy*>& Pooler::GetActiveEnemies() const {
+    if (activeEnemiesCacheDirty) {
+        activeEnemiesCache.clear();
 
-    for (Enemy* enemy : enemies) {
-        if (enemy->IsActive()) {
-            activeEnemies.push_back(enemy);
+        for (Enemy* enemy : enemies) {
+            if (enemy->IsActive()) {
+                activeEnemiesCache.push_back(enemy);
+            }
         }
+
+        activeEnemiesCacheDirty = false;
     }
 
-    return activeEnemies;
+    return activeEnemiesCache;
 }
 
 void Pooler::Clear() {
     for (Enemy* enemy : enemies) {
-        enemy->Deactivate();
+        if (enemy->IsActive()) {
+            enemy->Deactivate();
+            freeList.push_back(enemy);
+        }
     }
 
-    while (enemies.size() > minimumPoolSize) {
-        delete enemies.back();
-        enemies.pop_back();
+    // Everything is inactive at this point, so enemies and freeList hold the
+    // same set of pointers. Trimming has to remove from both, otherwise
+    // freeList could hand back a pointer to something already deleted.
+    while (enemies.size() > minimumPoolSize && !freeList.empty()) {
+        Enemy* enemy = freeList.back();
+        freeList.pop_back();
+
+        enemies.remove(enemy);
+        delete enemy;
     }
+
+    activeEnemiesCacheDirty = true;
 }
 
 Enemy* Pooler::CreateEnemy() {

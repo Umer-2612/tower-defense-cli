@@ -24,7 +24,13 @@ One more thing worth flagging even though it's outside the three classes: `Game:
 
 ### Pooler
 
-Added `SpawnEnemy`, `DespawnEnemy`, `GetActiveEnemies`, `Clear`, and a destructor. `SpawnEnemy` reuses an inactive `Enemy` already in the pool before allocating a new one, so the pool only grows when every existing instance is in use. `DespawnEnemy` deactivates rather than deletes, returning the instance to the pool for reuse. `Clear` deactivates everything at the end of a wave and also trims the pool back to `minimumPoolSize`, so a pool that grew during a large wave doesn't hold that memory for the rest of the game. The destructor frees whatever the pool still owns.
+Added `SpawnEnemy`, `DespawnEnemy`, `GetActiveEnemies`, `Clear`, and a destructor.
+
+The pool keeps a master `std::list<Enemy*>` for ownership, the same as before, but spawn and despawn no longer scan that list to find a reusable instance. A second container, `freeList`, holds only the pointers that are currently available. `SpawnEnemy` pops from `freeList` when it's not empty and only allocates a new `Enemy` when every pooled instance is in use. `DespawnEnemy` deactivates and pushes the pointer back onto `freeList`. Both are now constant time instead of a linear scan over the whole pool.
+
+`GetActiveEnemies` also used to rebuild its result from scratch on every call, and `game.cpp` calls it several times inside a single frame. It now caches the result and only recomputes when something actually changed, tracked with a dirty flag that spawn, despawn, and clear all set. The return type changed from `std::vector<Enemy*>` to `const std::vector<Enemy*>&`, which removes a redundant copy at the one call site in `Game::Update` that already binds it with `const auto&`; every other call site keeps working unchanged since `auto` and by-value parameters still copy the way they did before.
+
+`Clear` deactivates everything still active at the end of a wave, pushing each one onto `freeList`, and also trims the pool back down to `minimumPoolSize` if it grew past that during a big wave. The trim has to remove from both `enemies` and `freeList` for the same pointer, since leaving a deleted pointer behind in `freeList` would let a later `SpawnEnemy` hand back something already freed. The destructor frees whatever the pool still owns when the game shuts down.
 
 ### Tower
 
@@ -43,9 +49,10 @@ No test framework was set up in the project, so I verified this by hand:
 - Compiled each of the three `.cpp` files individually with `clang++ -std=c++17 -Wall -Wextra`. All three compile with zero warnings.
 - Compiled the full project once all three classes were done and ran the resulting binary. `log.txt` came out with correct ordering and the specified timestamp format (`2026-11-10 02:16:58 Starting game...` followed by the next message in sequence, not reversed).
 - Let it run for a few seconds to cross the start of a wave, confirming the empty-enemy-list case in `FireAtEnemy` no longer crashes.
+- Ran it again for about 45 seconds after adding the free list to `Pooler`, long enough to force three full wave transitions. That's the scenario that actually exercises `Clear`'s trim logic against a pool that's genuinely grown and shrunk, not an empty one, which is where a free list and a trim loop can disagree with each other if they're not kept in sync. No crash, and the log stayed correctly ordered through all three transitions.
 - Added a GitHub Actions workflow that configures and builds the `Debug-Ubuntu` CMake preset on every push and pull request, so the build is verified in a clean environment and not just on my machine.
 
-The only tool involved was the compiler's own warning flags; I didn't profile this, since none of the three classes have a performance problem that would show up in a profiler (the pool's `SpawnEnemy` is a linear scan, but the pool size here stays small enough that it isn't worth the added complexity of a free list).
+The only tool involved was the compiler's own warning flags; I didn't run a profiler, since there was nothing to point one at until I'd already read the code closely enough to know where the real cost was. `SpawnEnemy`'s linear scan would not have shown up as a hot spot in a profile at this pool's scale anyway, since the pool never grows past a few hundred entries here. I still replaced it with a free list, since the instructions ask for allocation and deallocation to be managed efficiently by name, and a free list is the standard way to make an object pool's spawn and despawn constant time instead of linear.
 
 ## Recommendations (outside the three classes)
 
