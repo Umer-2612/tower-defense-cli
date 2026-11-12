@@ -18,12 +18,16 @@ class Pooler {
 
     Enemy* SpawnEnemy(const Vector2D& spawnPosition);
     void DespawnEnemy(Enemy* enemy);
-    std::vector<Enemy*> GetActiveEnemies() const;
+    const std::vector<Enemy*>& GetActiveEnemies() const;
     void Clear();
 
    private:
     std::list<Enemy*> enemies;
+    std::vector<Enemy*> freeList;
     size_t minimumPoolSize;
+
+    mutable std::vector<Enemy*> activeEnemiesCache;
+    mutable bool activeEnemiesCacheDirty = true;
 
     Enemy* CreateEnemy();
 };

@@ -4,6 +4,7 @@ log.txt
 *.o
 *.obj
 *.exe
+/tower-defense-cli
 .DS_Store
 .vscode/
 .idea/
