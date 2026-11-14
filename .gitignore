@@ -5,6 +5,8 @@ log.txt
 *.obj
 *.exe
 /tower-defense-cli
+/interview-prep.md
+/submission.zip
 .DS_Store
 .vscode/
 .idea/
